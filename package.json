@@ -1,0 +1,16 @@
+{
+  "name":"falak-agent-reward-bot",
+  "version":"1.0.0",
+  "private":true,
+  "main":"index.js",
+  "scripts":{"start":"node index.js","check":"node --check index.js"},
+  "engines":{"node":">=20"},
+  "dependencies":{
+    "cookie-parser":"^1.4.7",
+    "dotenv":"^16.4.7",
+    "express":"^4.21.2",
+    "jsonwebtoken":"^9.0.2",
+    "pg":"^8.13.1",
+    "telegraf":"^4.16.3"
+  }
+}
