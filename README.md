@@ -1,15 +1,23 @@
-# Falak Agent Reward Bot
+# Falak Agent Reward Bot v1.5
 
-Production-oriented Telegram reward/referral bot foundation.
+Native Telegram reward/referral bot with PostgreSQL and an advanced admin console.
 
-## Channel setup
-- Public channel: use `@channelusername` as Chat ID and/or username, plus a public `https://t.me/channel` URL.
-- Private channel: use the numeric Chat ID (usually `-100...`) and a private invite URL such as `https://t.me/+...`.
-- Add the bot as an administrator to channels where membership verification is required.
-- Choose `Required` to gate access or `Optional` to display a channel without blocking/verification.
+UI direction:
+- Premium compact Telegram-style hierarchy inspired by the supplied visual reference.
+- Welcome poster + concise welcome message.
+- Required and optional public/private channels.
+- Admin-controlled channel buttons per row: 1, 2, or 3.
+- Private channel Chat ID validation and Telegram access test.
+- Referral deep links with automatic `/start ref_<telegram_id>` capture.
+- Automatic home screen after successful membership verification (configurable).
+- Wallet, tasks, gift codes, withdrawals, leaderboard, support.
+- New-user notification to ADMIN_CHAT_ID.
+- Railway webhook deployment.
 
-## Referral
-Referral links use Telegram deep links such as `https://t.me/YourBot?start=ref_123456789`.
+Important:
+- Telegram bots cannot load arbitrary custom font files into Telegram chat bubbles. This project uses Telegram HTML formatting and restrained Unicode typography for headings.
+- For membership checks, add the bot as an administrator in channels that require verification.
 
-## Important
-Telegram bots cannot start a private chat with a user who has never started the bot. `/start` or a Telegram deep link is required to open the conversation.
+Run:
+npm install
+npm start
