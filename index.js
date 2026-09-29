@@ -56,21 +56,45 @@ INSERT INTO settings(key,value) VALUES
  ('currency','₹'),('min_withdrawal','100'),('referral_reward','10'),('referral_qualify_task','1'),
  ('start_image_file_id',''),('start_title','👋 Welcome to Falak Agent'),
  ('start_text','🎁 Complete tasks\\n👥 Invite friends\\n💰 Earn rewards\\n💸 Withdraw your earnings\\n\\nJoin the channels below to unlock the bot.'),
- ('maintenance','0') ON CONFLICT(key) DO NOTHING;
+ ('maintenance','0'),('updates_url',''),('privacy_url',''),('language_url',''),('report_url',''),('rate_url','') ON CONFLICT(key) DO NOTHING;
 `;
 
 async function setting(k,d=''){const r=await q('SELECT value FROM settings WHERE key=$1',[k]);return r.rows[0]?.value??d;}
 async function setSetting(k,v){await q('INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value',[k,String(v)]);}
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function money(n,c='₹'){return c+Number(n||0).toFixed(2);}
-function mainMenu(){return Markup.keyboard([
- ['🎁 Earn','💰 Wallet'],
- ['👥 Invite & Earn','🏆 Leaderboard'],
- ['🎟 Gift Code','📜 History'],
- ['💸 Withdraw','👤 My Account'],
- ['🆘 Support']
-]).resize().persistent();}
-function channelRows(cs){return cs.map(c=>[Markup.button.url((c.verification_required?'🔒 ':'📢 ')+c.title,c.invite_url||(`https://t.me/${String(c.username||'').replace(/^@/,'')}`))]);}
+function mainMenu(){return Markup.inlineKeyboard([
+ [Markup.button.callback('🎁 Earn','ui:tasks'),Markup.button.callback('💰 Wallet','ui:wallet')],
+ [Markup.button.callback('👥 Invite & Earn','ui:invite'),Markup.button.callback('🏆 Leaderboard','ui:leaderboard')],
+ [Markup.button.callback('🎟 Gift Code','ui:gift'),Markup.button.callback('📜 History','ui:history')],
+ [Markup.button.callback('💸 Withdraw','ui:withdraw'),Markup.button.callback('👤 My Account','ui:account')],
+ [Markup.button.callback('🆘 Support','ui:support')]
+]);}
+function homeLinks(){
+  // Keep the welcome screen focused on the reward bot itself.
+  // No unrelated Add-to-Group / Rate / Updates buttons.
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('🎁 Earn','ui:tasks'),Markup.button.callback('💰 Wallet','ui:wallet')],
+    [Markup.button.callback('👥 Invite & Earn','ui:invite'),Markup.button.callback('🏆 Leaderboard','ui:leaderboard')],
+    [Markup.button.callback('🎟 Gift Code','ui:gift'),Markup.button.callback('📜 History','ui:history')],
+    [Markup.button.callback('💸 Withdraw','ui:withdraw'),Markup.button.callback('👤 My Account','ui:account')],
+    [Markup.button.callback('🆘 Support','ui:support')]
+  ]);
+}
+
+
+function channelRows(cs){
+  const buttons=cs.map(c=>{
+    const rawInvite=String(c.invite_url||'').trim();
+    const uname=String(c.username||'').replace(/^@/,'').trim();
+    const url=rawInvite || (uname ? `https://t.me/${uname}` : '');
+    const label=(c.verification_required?'🔒 ':'📢 ')+c.title;
+    return url ? Markup.button.url(label,url) : Markup.button.callback(label,`channelinfo:${c.id}`);
+  });
+  const rows=[];
+  for(let i=0;i<buttons.length;i+=3) rows.push(buttons.slice(i,i+3));
+  return rows;
+}
 async function getUser(id){return (await q('SELECT * FROM users WHERE telegram_id=$1',[id])).rows[0];}
 async function ensureUser(from,payload){
  let u=await getUser(from.id); if(u){await q('UPDATE users SET username=$2,first_name=$3,last_seen_at=NOW() WHERE id=$1',[u.id,from.username||null,from.first_name||'']);return (await getUser(from.id));}
@@ -127,37 +151,59 @@ async function qualifyReferral(userId){
  try{await bot.telegram.sendMessage(ref.referrer_tid,`🎉 <b>Referral Qualified!</b>\n\nYou earned <b>${esc(money(reward,await setting('currency','₹')))}</b> from a qualified referral.`,{parse_mode:'HTML'});}catch{}
  }catch(e){await c.query('ROLLBACK');}finally{c.release();}
 }
-async function home(ctx){const u=await getUser(ctx.from.id);const cur=await setting('currency','₹');const text=`🏠 <b>REWARD HUB</b>\n\n💰 <b>Balance</b>  ${esc(money(u.balance,cur))}\n🎁 <b>Lifetime earned</b>  ${esc(money(u.lifetime_earned,cur))}\n\nChoose an option below to continue.`;const img=await setting('start_image_file_id','');if(img){try{return await ctx.replyWithPhoto(img,{caption:text,parse_mode:'HTML',...mainMenu()});}catch{}}
- return ctx.reply(text,{parse_mode:'HTML',...mainMenu()});}
+async function home(ctx){const u=await getUser(ctx.from.id),cur=await setting('currency','₹'),me=await ctx.telegram.getMe();const text=`🏠 <b>Falak Rewards</b>\n\n💰 <b>Balance:</b> ${esc(money(u.balance,cur))}\n🎁 <b>Lifetime earned:</b> ${esc(money(u.lifetime_earned,cur))}\n\nChoose an option below.`;const img=await setting('start_image_file_id','');const kb=mainMenu();if(img){try{return await ctx.replyWithPhoto(img,{caption:text,parse_mode:'HTML',...kb});}catch{}}return ctx.reply(text,{parse_mode:'HTML',...kb});}
+
 async function sendStart(ctx){
- const img=await setting('start_image_file_id','');const title=await setting('start_title','👋 Welcome to Falak Agent');const body=(await setting('start_text','')).replace(/\\n/g,'\n');
+ const img=await setting('start_image_file_id','');const title=await setting('start_title','👋 Welcome to Falak Rewards');const body=(await setting('start_text','')).replace(/\\n/g,'\n');
  const text=`<b>${esc(title)}</b>\n\n${esc(body)}`;
- const cs=await requiredChannels();const rows=channelRows(cs.filter(c=>c.verification_required));
+ const cs=await requiredChannels();const rows=channelRows(cs);
  if(cs.some(c=>c.verification_required))rows.push([Markup.button.callback('🔄 VERIFY MEMBERSHIP','verify')]);
- if(img){try{return await ctx.replyWithPhoto(img,{caption:text,parse_mode:'HTML',...Markup.inlineKeyboard(rows)});}catch{}}
- return ctx.reply(text,{parse_mode:'HTML',...Markup.inlineKeyboard(rows)});
+ const me=await ctx.telegram.getMe();
+ const keyboard=Markup.inlineKeyboard([...rows,...homeLinks().reply_markup.inline_keyboard]);
+ if(img){try{return await ctx.replyWithPhoto(img,{caption:text,parse_mode:'HTML',...keyboard});}catch(e){console.error('Welcome image failed:',e.message);}}
+ return ctx.reply(text,{parse_mode:'HTML',...keyboard});
 }
 
-bot.use(async(ctx,next)=>{if(ctx.from)await ensureUser(ctx.from,ctx.startPayload||'');return next();});
+function extractStartPayload(ctx){
+  const text=ctx.message?.text||'';
+  const m=text.match(/^\/start(?:@[A-Za-z0-9_]+)?(?:\s+([^\s]+))?/i);
+  return m?.[1]||'';
+}
+bot.use(async(ctx,next)=>{if(ctx.from)await ensureUser(ctx.from,extractStartPayload(ctx));return next();});
 bot.start(async ctx=>{if((await setting('maintenance','0'))==='1')return ctx.reply('🛠 <b>Maintenance Mode</b>\nPlease try again later.',{parse_mode:'HTML'});if(await isVerified(ctx))return home(ctx);return sendStart(ctx);});
+bot.action(/^channelinfo:(\d+)$/,async ctx=>{await ctx.answerCbQuery('This channel has no join link configured.',{show_alert:true});});
 bot.action('verify',async ctx=>{await ctx.answerCbQuery();if(await sendGate(ctx))return home(ctx);});
 
-async function gated(ctx,fn){if(!(await isVerified(ctx))){await sendGate(ctx);return;}return fn();}
+async function showTasks(ctx){return gated(ctx,async()=>{const ts=(await q('SELECT * FROM tasks WHERE active ORDER BY id DESC')).rows;if(!ts.length)return ctx.reply('📭 <b>No tasks available right now.</b>\nPlease check again later.',{parse_mode:'HTML',...mainMenu()});for(const t of ts){const text=`🎁 <b>${esc(t.title)}</b>\n\n${esc(t.description)}\n\n💰 Reward: <b>${esc(money(t.reward,await setting('currency','₹')))}</b>`;await ctx.reply(text,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('🚀 START TASK',`task:${t.id}`)],[Markup.button.callback('‹ BACK','ui:home')]])});}});}
+async function showWallet(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),c=await setting('currency','₹');await ctx.reply(`💰 <b>MY WALLET</b>\n\nAvailable Balance\n<b>${esc(money(u.balance,c))}</b>\n\n🎁 Lifetime Earned: ${esc(money(u.lifetime_earned,c))}\n💸 Lifetime Withdrawn: ${esc(money(u.lifetime_withdrawn,c))}`,{parse_mode:'HTML',...mainMenu()});});}
+async function showAccount(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id);const s=(await q("SELECT count(*)::int total,count(*) FILTER(WHERE status='qualified')::int qualified FROM referrals WHERE referrer_id=$1",[u.id])).rows[0];await ctx.reply(`👤 <b>MY ACCOUNT</b>\n\n🆔 <code>${u.telegram_id}</code>\n${u.username?'@'+esc(u.username):'No username'}\n\n👥 Invited: <b>${s.total}</b>\n✅ Qualified: <b>${s.qualified}</b>\n📅 Joined: ${new Date(u.created_at).toLocaleDateString('en-IN')}`,{parse_mode:'HTML',...mainMenu()});});}
+async function showInvite(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),me=await ctx.telegram.getMe(),c=await setting('currency','₹');const s=(await q("SELECT count(*)::int total,count(*) FILTER(WHERE status='qualified')::int qualified,coalesce(sum(reward),0) earned FROM referrals WHERE referrer_id=$1",[u.id])).rows[0];const link=`https://t.me/${me.username}?start=ref_${ctx.from.id}`;await ctx.reply(`👥 <b>INVITE &amp; EARN</b>\n\n💰 Reward per qualified referral: <b>${esc(money(await setting('referral_reward','10'),c))}</b>\n\n👤 Invited: <b>${s.total}</b>\n✅ Qualified: <b>${s.qualified}</b>\n💵 Referral Earnings: <b>${esc(money(s.earned,c))}</b>\n\n🔗 <b>Your referral link</b>\n<code>${esc(link)}</code>`,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.url('📤 SHARE LINK',`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Join Falak Rewards and start earning!')}`)],[Markup.button.callback('‹ BACK','ui:home')]])});});}
+async function showLeaderboard(ctx){return gated(ctx,async()=>{const c=await setting('currency','₹');const r=(await q("SELECT first_name,username,lifetime_earned FROM users WHERE status='active' ORDER BY lifetime_earned DESC LIMIT 10")).rows;await ctx.reply('🏆 <b>TOP EARNERS</b>\n\n'+(r.length?r.map((x,i)=>`${['🥇','🥈','🥉'][i]||`${i+1}️⃣`} ${esc(x.username?'@'+x.username:x.first_name)} — <b>${esc(money(x.lifetime_earned,c))}</b>`).join('\n'):'No data yet.'),{parse_mode:'HTML',...mainMenu()});});}
+async function showHistory(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),r=(await q('SELECT type,amount,status,created_at FROM wallet_transactions WHERE user_id=$1 ORDER BY id DESC LIMIT 15',[u.id])).rows;const c=await setting('currency','₹');await ctx.reply(r.length?'📜 <b>HISTORY</b>\n\n'+r.map(x=>`• ${esc(x.type)} — ${esc(money(x.amount,c))} — ${esc(x.status)}`).join('\n'):'📜 No transactions yet.',{parse_mode:'HTML',...mainMenu()});});}
+async function showGift(ctx){await ctx.answerCbQuery?.().catch(()=>{});return ctx.reply('🎟 <b>GIFT CODE</b>\n\nSend: <code>/gift YOURCODE</code>',{parse_mode:'HTML',...mainMenu()});}
+async function showWithdraw(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),m=await setting('min_withdrawal','100'),c=await setting('currency','₹');await ctx.reply(`💸 <b>WITHDRAW</b>\n\nAvailable: <b>${esc(money(u.balance,c))}</b>\nMinimum: <b>${esc(money(m,c))}</b>\n\nUse:\n<code>/withdraw ${m} upi yourupi@bank</code>`,{parse_mode:'HTML',...mainMenu()});});}
+async function showSupport(ctx){return ctx.reply(`🆘 <b>SUPPORT</b>\n\nContact: @${esc(String(process.env.SUPPORT_USERNAME||'not_configured').replace(/^@/,''))}`,{parse_mode:'HTML',...mainMenu()});}
+async function showHelp(ctx){return ctx.reply('📖 <b>HELP</b>\n\nUse the buttons above to navigate.\n\n/gift CODE — redeem a gift code\n/withdraw amount method destination — request a withdrawal\n/start — open the welcome screen.',{parse_mode:'HTML',...mainMenu()});}
+async function showHome(ctx){return home(ctx);}
 
-bot.hears('🎁 Earn',ctx=>gated(ctx,async()=>{const ts=(await q('SELECT * FROM tasks WHERE active ORDER BY id DESC')).rows;if(!ts.length)return ctx.reply('📭 <b>No tasks available right now.</b>\nPlease check again later.',{parse_mode:'HTML'});for(const t of ts){const text=`🎁 <b>${esc(t.title)}</b>\n\n${esc(t.description)}\n\n💰 Reward: <b>${esc(money(t.reward,await setting('currency','₹')))}</b>`;await ctx.reply(text,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('🚀 START TASK',`task:${t.id}`)]])});}}));
-bot.action(/^task:(\d+)$/,async ctx=>{await ctx.answerCbQuery();await gated(ctx,async()=>{const u=await getUser(ctx.from.id);const t=(await q('SELECT * FROM tasks WHERE id=$1 AND active',[Number(ctx.match[1])])).rows[0];if(!t)return ctx.reply('❌ Task unavailable.');const n=Number((await q("SELECT count(*)::int n FROM task_attempts WHERE user_id=$1 AND task_id=$2 AND created_at>=date_trunc('day',NOW()) AND status='completed'",[u.id,t.id])).rows[0].n);if(n>=t.daily_limit)return ctx.reply('⚠️ Daily limit reached.');const a=(await q('INSERT INTO task_attempts(task_id,user_id) VALUES($1,$2) RETURNING id',[t.id,u.id])).rows[0];await ctx.reply(`🚀 <b>${esc(t.title)}</b>\n\nComplete the task and then continue.`,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('✅ COMPLETE',`done:${a.id}`)]])});});});
+bot.action(/^ui:(home|tasks|wallet|invite|leaderboard|gift|history|withdraw|account|support|help)$/,async ctx=>{await ctx.answerCbQuery();const a=ctx.match[1];if(a==='home')return showHome(ctx);if(a==='tasks')return showTasks(ctx);if(a==='wallet')return showWallet(ctx);if(a==='invite')return showInvite(ctx);if(a==='leaderboard')return showLeaderboard(ctx);if(a==='gift')return showGift(ctx);if(a==='history')return showHistory(ctx);if(a==='withdraw')return showWithdraw(ctx);if(a==='account')return showAccount(ctx);if(a==='support')return showSupport(ctx);return showHelp(ctx);});
+bot.action(/^task:(\d+)$/,async ctx=>{await ctx.answerCbQuery();await gated(ctx,async()=>{const u=await getUser(ctx.from.id);const t=(await q('SELECT * FROM tasks WHERE id=$1 AND active',[Number(ctx.match[1])])).rows[0];if(!t)return ctx.reply('❌ Task unavailable.');const n=Number((await q("SELECT count(*)::int n FROM task_attempts WHERE user_id=$1 AND task_id=$2 AND created_at>=date_trunc('day',NOW()) AND status='completed'",[u.id,t.id])).rows[0].n);if(n>=t.daily_limit)return ctx.reply('⚠️ Daily limit reached.');const a=(await q('INSERT INTO task_attempts(task_id,user_id) VALUES($1,$2) RETURNING id',[t.id,u.id])).rows[0];await ctx.reply(`🚀 <b>${esc(t.title)}</b>\n\nComplete the task and then continue.`,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('✅ COMPLETE',`done:${a.id}`)],[Markup.button.callback('‹ BACK','ui:tasks')]])});});});
 bot.action(/^done:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const u=await getUser(ctx.from.id);const c=await db.connect();try{await c.query('BEGIN');const a=(await c.query('SELECT a.*,t.reward,t.title FROM task_attempts a JOIN tasks t ON t.id=a.task_id WHERE a.id=$1 AND a.user_id=$2 FOR UPDATE',[Number(ctx.match[1]),u.id])).rows[0];if(!a||a.status!=='started'){await c.query('ROLLBACK');return ctx.reply('❌ Invalid or already completed.');}await c.query("UPDATE task_attempts SET status='completed',completed_at=NOW() WHERE id=$1",[a.id]);await c.query('UPDATE users SET balance=balance+$2,lifetime_earned=lifetime_earned+$2 WHERE id=$1',[u.id,a.reward]);await c.query("INSERT INTO wallet_transactions(user_id,type,amount,reference,note) VALUES($1,'task_reward',$2,$3,$4)",[u.id,a.reward,'TASK-'+a.id,a.title]);await c.query('COMMIT');await ctx.reply(`🎉 <b>Reward Added!</b>\n\nYou earned <b>${esc(money(a.reward,await setting('currency','₹')))}</b>.`,{parse_mode:'HTML',...mainMenu()});await qualifyReferral(u.id);}catch(e){await c.query('ROLLBACK');await ctx.reply('❌ Something went wrong.');}finally{c.release();}});
 
-bot.hears('💰 Wallet',ctx=>gated(ctx,async()=>{const u=await getUser(ctx.from.id),c=await setting('currency','₹');await ctx.reply(`💰 <b>MY WALLET</b>\n\nAvailable Balance\n<b>${esc(money(u.balance,c))}</b>\n\n🎁 Lifetime Earned: ${esc(money(u.lifetime_earned,c))}\n💸 Lifetime Withdrawn: ${esc(money(u.lifetime_withdrawn,c))}`,{parse_mode:'HTML',...mainMenu()});}));
-bot.hears('👤 My Account',ctx=>gated(ctx,async()=>{const u=await getUser(ctx.from.id);const s=(await q("SELECT count(*)::int total,count(*) FILTER(WHERE status='qualified')::int qualified FROM referrals WHERE referrer_id=$1",[u.id])).rows[0];await ctx.reply(`👤 <b>MY ACCOUNT</b>\n\n🆔 <code>${u.telegram_id}</code>\n${u.username?'@'+esc(u.username):'No username'}\n\n👥 Invited: <b>${s.total}</b>\n✅ Qualified: <b>${s.qualified}</b>\n📅 Joined: ${new Date(u.created_at).toLocaleDateString('en-IN')}`,{parse_mode:'HTML',...mainMenu()});}));
-bot.hears('👥 Invite & Earn',ctx=>gated(ctx,async()=>{const u=await getUser(ctx.from.id),me=await ctx.telegram.getMe(),c=await setting('currency','₹');const s=(await q("SELECT count(*)::int total,count(*) FILTER(WHERE status='qualified')::int qualified,coalesce(sum(reward),0) earned FROM referrals WHERE referrer_id=$1",[u.id])).rows[0];const link=`https://t.me/${me.username}?start=ref_${ctx.from.id}`;await ctx.reply(`👥 <b>INVITE &amp; EARN</b>\n\n💰 Reward per qualified referral: <b>${esc(money(await setting('referral_reward','10'),c))}</b>\n\n👤 Invited: <b>${s.total}</b>\n✅ Qualified: <b>${s.qualified}</b>\n💵 Referral Earnings: <b>${esc(money(s.earned,c))}</b>\n\n🔗 <b>Your referral link</b>\n<code>${esc(link)}</code>`,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.url('📤 SHARE LINK',`https://t.me/share/url?url=${encodeURIComponent(link)}`)]])});}));
-bot.hears('🏆 Leaderboard',ctx=>gated(ctx,async()=>{const c=await setting('currency','₹');const r=(await q("SELECT first_name,username,lifetime_earned FROM users WHERE status='active' ORDER BY lifetime_earned DESC LIMIT 10")).rows;await ctx.reply('🏆 <b>TOP EARNERS</b>\n\n'+(r.length?r.map((x,i)=>`${['🥇','🥈','🥉'][i]||`${i+1}️⃣`} ${esc(x.username?'@'+x.username:x.first_name)} — <b>${esc(money(x.lifetime_earned,c))}</b>`).join('\n'):'No data yet.'),{parse_mode:'HTML',...mainMenu()});}));
-bot.hears('📜 History',ctx=>gated(ctx,async()=>{const u=await getUser(ctx.from.id),r=(await q('SELECT type,amount,status,created_at FROM wallet_transactions WHERE user_id=$1 ORDER BY id DESC LIMIT 15',[u.id])).rows;const c=await setting('currency','₹');await ctx.reply(r.length?'📜 <b>HISTORY</b>\n\n'+r.map(x=>`• ${esc(x.type)} — ${esc(money(x.amount,c))} — ${esc(x.status)}`).join('\n'):'📜 No transactions yet.',{parse_mode:'HTML',...mainMenu()});}));
-bot.hears('🎟 Gift Code',ctx=>ctx.reply('🎟 <b>GIFT CODE</b>\n\nSend: <code>/gift YOURCODE</code>',{parse_mode:'HTML',...mainMenu()}));
 bot.command('gift',async ctx=>{const code=(ctx.message.text.split(/\s+/)[1]||'').toUpperCase();if(!code)return ctx.reply('Usage: /gift CODE');const u=await getUser(ctx.from.id),c=await db.connect();try{await c.query('BEGIN');const g=(await c.query('SELECT * FROM gift_codes WHERE code=$1 AND active FOR UPDATE',[code])).rows[0];if(!g)throw Error('Invalid code');if(g.expires_at&&new Date(g.expires_at)<new Date())throw Error('Code expired');if(g.used_count>=g.max_uses)throw Error('No uses left');if((await c.query('SELECT 1 FROM gift_uses WHERE gift_id=$1 AND user_id=$2',[g.id,u.id])).rows[0])throw Error('Already used');await c.query('INSERT INTO gift_uses(gift_id,user_id) VALUES($1,$2)',[g.id,u.id]);await c.query('UPDATE gift_codes SET used_count=used_count+1 WHERE id=$1',[g.id]);await c.query('UPDATE users SET balance=balance+$2,lifetime_earned=lifetime_earned+$2 WHERE id=$1',[u.id,g.amount]);await c.query("INSERT INTO wallet_transactions(user_id,type,amount,reference) VALUES($1,'gift_code',$2,$3)",[u.id,g.amount,'GIFT-'+g.id]);await c.query('COMMIT');await ctx.reply(`🎉 <b>Gift Code Applied!</b>\n\nAdded <b>${esc(money(g.amount,await setting('currency','₹')))}</b> to your wallet.`,{parse_mode:'HTML',...mainMenu()});await qualifyReferral(u.id);}catch(e){await c.query('ROLLBACK');await ctx.reply('❌ '+esc(e.message),{parse_mode:'HTML'});}finally{c.release();}});
-bot.hears('💸 Withdraw',ctx=>gated(ctx,async()=>{const u=await getUser(ctx.from.id),m=await setting('min_withdrawal','100'),c=await setting('currency','₹');await ctx.reply(`💸 <b>WITHDRAW</b>\n\nAvailable: <b>${esc(money(u.balance,c))}</b>\nMinimum: <b>${esc(money(m,c))}</b>\n\nUse:\n<code>/withdraw ${m} upi yourupi@bank</code>`,{parse_mode:'HTML',...mainMenu()});}));
+bot.command('help',async ctx=>showHelp(ctx));
 bot.command('withdraw',async ctx=>{if(!(await isVerified(ctx)))return sendGate(ctx);const p=ctx.message.text.trim().split(/\s+/),amount=Number(p[1]),method=p[2],dest=p.slice(3).join(' '),min=Number(await setting('min_withdrawal','100')),u=await getUser(ctx.from.id);if(!Number.isFinite(amount)||amount<min||!method||!dest)return ctx.reply(`Usage: /withdraw ${min} upi yourupi@bank`);const c=await db.connect();try{await c.query('BEGIN');const bal=Number((await c.query('SELECT balance FROM users WHERE id=$1 FOR UPDATE',[u.id])).rows[0].balance);if(bal<amount)throw Error('Insufficient balance');const w=(await c.query('INSERT INTO withdrawals(user_id,amount,method,destination) VALUES($1,$2,$3,$4) RETURNING id',[u.id,amount,method,dest])).rows[0];await c.query('UPDATE users SET balance=balance-$2 WHERE id=$1',[u.id,amount]);await c.query("INSERT INTO wallet_transactions(user_id,type,amount,status,reference) VALUES($1,'withdrawal',$2,'pending',$3)",[u.id,-amount,'WD-'+w.id]);await c.query('COMMIT');await ctx.reply(`⏳ <b>Withdrawal Submitted</b>\n\nRequest: <code>WD-${w.id}</code>\nAmount: <b>${esc(money(amount,await setting('currency','₹')))}</b>\nStatus: Pending`,{parse_mode:'HTML',...mainMenu()});}catch(e){await c.query('ROLLBACK');await ctx.reply('❌ '+esc(e.message),{parse_mode:'HTML'});}finally{c.release();}});
-bot.hears('🆘 Support',ctx=>ctx.reply(`🆘 <b>SUPPORT</b>\n\nContact: @${esc(String(process.env.SUPPORT_USERNAME||'not_configured').replace(/^@/,''))}`,{parse_mode:'HTML',...mainMenu()}));
+
+// Legacy text commands remain supported for users who type them manually.
+bot.hears('🎁 Earn',showTasks);bot.hears('💰 Wallet',showWallet);bot.hears('👥 Invite & Earn',showInvite);bot.hears('🏆 Leaderboard',showLeaderboard);bot.hears('🎟 Gift Code',showGift);bot.hears('📜 History',showHistory);bot.hears('💸 Withdraw',showWithdraw);bot.hears('👤 My Account',showAccount);bot.hears('🆘 Support',showSupport);
+
+
+const welcomePhotoAdmins=new Set();
+async function isAdminTelegram(id){return String(id)===String(process.env.ADMIN_CHAT_ID||'');}
+bot.command('setwelcome',async ctx=>{if(!(await isAdminTelegram(ctx.from.id)))return;welcomePhotoAdmins.add(String(ctx.from.id));await ctx.reply('🖼 Send the welcome poster photo now. I will save its Telegram file_id and use it on /start.');});
+bot.command('clearwelcome',async ctx=>{if(!(await isAdminTelegram(ctx.from.id)))return;welcomePhotoAdmins.delete(String(ctx.from.id));await setSetting('start_image_file_id','');await ctx.reply('✅ Welcome poster cleared.');});
+bot.on('photo',async ctx=>{if(!welcomePhotoAdmins.has(String(ctx.from.id))||!(await isAdminTelegram(ctx.from.id)))return;const photo=ctx.message.photo.at(-1);if(!photo)return;await setSetting('start_image_file_id',photo.file_id);welcomePhotoAdmins.delete(String(ctx.from.id));await ctx.reply('✅ Welcome poster saved. Send /start to preview it.');});
+
 
 const app=express();app.use(express.json({limit:'2mb'}));app.use(cookieParser());
 app.get('/health',(req,res)=>res.json({ok:true,service:'falak-agent-reward-bot'}));
@@ -171,8 +217,8 @@ app.get('/admin/api/stats',auth,async(req,res)=>{const a=await q('SELECT count(*
 app.get('/admin/api/settings',auth,async(req,res)=>{const r=await q('SELECT key,value FROM settings');res.json(Object.fromEntries(r.rows.map(x=>[x.key,x.value])));});
 app.post('/admin/api/settings',auth,async(req,res)=>{for(const [k,v] of Object.entries(req.body||{}))await setSetting(k,v);await q('INSERT INTO audit_logs(admin_username,action,details) VALUES($1,$2,$3)',[req.admin.u,'settings.update',req.body]);res.json({ok:true});});
 app.get('/admin/api/channels',auth,async(req,res)=>res.json((await q('SELECT * FROM channels ORDER BY sort_order,id')).rows));
-app.post('/admin/api/channels',auth,async(req,res)=>{const r=await q('INSERT INTO channels(title,chat_id,username,invite_url,verification_required,active) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[req.body.title,req.body.chat_id,req.body.username||null,req.body.invite_url||null,req.body.verification_required!==false,req.body.active!==false]);res.json(r.rows[0]);});
-app.put('/admin/api/channels/:id',auth,async(req,res)=>{const r=await q('UPDATE channels SET title=$2,chat_id=$3,username=$4,invite_url=$5,verification_required=$6,active=$7 WHERE id=$1 RETURNING *',[req.params.id,req.body.title,req.body.chat_id,req.body.username||null,req.body.invite_url||null,req.body.verification_required!==false,req.body.active!==false]);res.json(r.rows[0]);});
+app.post('/admin/api/channels',auth,async(req,res)=>{const title=String(req.body.title||'').trim(),chatId=String(req.body.chat_id||'').trim(),username=String(req.body.username||'').trim().replace(/^@/,'')||null,invite=String(req.body.invite_url||'').trim()||null;if(!title||!chatId)return res.status(400).json({error:'Title and Chat ID are required'});if(!invite&&!username)return res.status(400).json({error:'Add a public username or an invite URL so users can join the channel'});try{const r=await q('INSERT INTO channels(title,chat_id,username,invite_url,verification_required,active) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[title,chatId,username,invite,req.body.verification_required!==false,req.body.active!==false]);res.json(r.rows[0]);}catch(e){res.status(400).json({error:e.message});}});
+app.put('/admin/api/channels/:id',auth,async(req,res)=>{const title=String(req.body.title||'').trim(),chatId=String(req.body.chat_id||'').trim(),username=String(req.body.username||'').trim().replace(/^@/,'')||null,invite=String(req.body.invite_url||'').trim()||null;if(!title||!chatId)return res.status(400).json({error:'Title and Chat ID are required'});if(!invite&&!username)return res.status(400).json({error:'Add a public username or an invite URL so users can join the channel'});try{const r=await q('UPDATE channels SET title=$2,chat_id=$3,username=$4,invite_url=$5,verification_required=$6,active=$7 WHERE id=$1 RETURNING *',[req.params.id,title,chatId,username,invite,req.body.verification_required!==false,req.body.active!==false]);res.json(r.rows[0]);}catch(e){res.status(400).json({error:e.message});}});
 app.delete('/admin/api/channels/:id',auth,async(req,res)=>{await q('DELETE FROM channels WHERE id=$1',[req.params.id]);res.json({ok:true});});
 app.get('/admin/api/tasks',auth,async(req,res)=>res.json((await q('SELECT * FROM tasks ORDER BY id DESC')).rows));
 app.post('/admin/api/tasks',auth,async(req,res)=>{const r=await q('INSERT INTO tasks(title,description,reward,daily_limit) VALUES($1,$2,$3,$4) RETURNING *',[req.body.title,req.body.description||'',Number(req.body.reward),Number(req.body.daily_limit||1)]);res.json(r.rows[0]);});
@@ -186,4 +232,4 @@ app.post('/admin/api/broadcast',auth,async(req,res)=>{const kind=req.body.kind||
 
 app.post('/telegram/webhook',async(req,res)=>{if(req.get('X-Telegram-Bot-Api-Secret-Token')!==process.env.WEBHOOK_SECRET)return res.sendStatus(401);try{await bot.handleUpdate(req.body);res.sendStatus(200);}catch(e){console.error(e);res.sendStatus(500);}});
 
-(async()=>{await q(SQL);const port=Number(process.env.PORT||3000);app.listen(port,async()=>{const base=process.env.BASE_URL.replace(/\/$/,'');const url=base+'/telegram/webhook';await bot.telegram.setWebhook(url,{secret_token:process.env.WEBHOOK_SECRET,allowed_updates:['message','callback_query']});console.log('READY',url);});})().catch(e=>{console.error(e);process.exit(1);});
+(async()=>{await q(SQL);try{await bot.telegram.setMyCommands([{command:'start',description:'Open the welcome screen'},{command:'gift',description:'Redeem a gift code'},{command:'withdraw',description:'Request a withdrawal'},{command:'help',description:'Show help'}]);}catch(e){console.error('setMyCommands failed:',e.message);}const port=Number(process.env.PORT||3000);app.listen(port,async()=>{const base=process.env.BASE_URL.replace(/\/$/,'');const url=base+'/telegram/webhook';await bot.telegram.setWebhook(url,{secret_token:process.env.WEBHOOK_SECRET,allowed_updates:['message','callback_query']});console.log('READY',url);});})().catch(e=>{console.error(e);process.exit(1);});

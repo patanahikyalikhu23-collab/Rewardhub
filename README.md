@@ -1,31 +1,15 @@
 # Falak Agent Reward Bot
 
-Production-oriented Telegram reward/referral bot starter for Railway.
+Production-oriented Telegram reward/referral bot foundation.
 
-## Included in v1
-- Native Telegram reply-keyboard main menu
-- Welcome/start image + configurable welcome text
-- Required and optional public/private channels
-- Membership verification
-- Referral links and qualified referral rewards
-- Task/reward engine
-- Wallet + transaction ledger
-- Gift codes
-- Withdrawal requests + admin pay/reject/refund
-- Text/photo/video broadcasts
-- Admin dashboard with channel/task/gift/broadcast/withdrawal management
-- JWT-protected admin panel
-- PostgreSQL
-- Telegram webhook
+## Channel setup
+- Public channel: use `@channelusername` as Chat ID and/or username, plus a public `https://t.me/channel` URL.
+- Private channel: use the numeric Chat ID (usually `-100...`) and a private invite URL such as `https://t.me/+...`.
+- Add the bot as an administrator to channels where membership verification is required.
+- Choose `Required` to gate access or `Optional` to display a channel without blocking/verification.
 
-## Railway
-1. Create PostgreSQL in the same Railway project.
-2. Deploy this repository/service.
-3. Set BOT_TOKEN, DATABASE_URL, JWT_SECRET, WEBHOOK_SECRET, BASE_URL, ADMIN_USERNAME, ADMIN_PASSWORD.
-4. Generate a public domain and put it in BASE_URL.
-5. Redeploy.
+## Referral
+Referral links use Telegram deep links such as `https://t.me/YourBot?start=ref_123456789`.
 
-The application creates/updates its required tables on startup.
-
-### New-user admin notifications
-Set `ADMIN_CHAT_ID` to the Telegram numeric ID of the admin account. When a brand-new user starts the bot, the admin receives a notification containing the user name, username, Telegram ID, and referral information. The admin must have opened/started the bot at least once so the bot can message that account.
+## Important
+Telegram bots cannot start a private chat with a user who has never started the bot. `/start` or a Telegram deep link is required to open the conversation.
