@@ -195,22 +195,32 @@ async function sendStart(ctx){
   const img=await setting('start_image_file_id','');
   const title=await setting('start_title','👋 Welcome to Falak Rewards');
   const body=(await setting('start_text','')).replace(/\\n/g,'\n');
-  const text=`╭━━━ ✦ <b>${esc(title)}</b> ✦ ━━━╮\n\n${esc(body)}\n\n╰━━━━━━━━━━━━━━━━━━━━╯`;
-  const reply=mainKeyboard();
-  if(img){
-    try{await ctx.replyWithPhoto(img,{caption:text,parse_mode:'HTML',...reply});}
-    catch(e){console.error('Welcome image failed:',e.message);await ctx.reply(text,{parse_mode:'HTML',...reply});}
-  }else{
-    await ctx.reply(text,{parse_mode:'HTML',...reply});
-  }
-
   const cs=await requiredChannels();
+  const hasChannels=cs.length>0;
   const hasRequired=cs.some(c=>c.verification_required);
-  if(hasRequired){
-    const rows=await channelRows(cs);
-    rows.push([Markup.button.callback('↻ 𝗩𝗘𝗥𝗜𝗙𝗬 𝗠𝗘𝗠𝗕𝗘𝗥𝗦𝗛𝗜𝗣','verify')]);
-    await ctx.reply('🔐 <b>CHANNEL VERIFICATION</b>\n\nJoin the required channels below, then press <b>Verify Membership</b>.\n\n📢 Optional channels can be skipped.',{parse_mode:'HTML',...Markup.inlineKeyboard(rows)});
+
+  let text=`╭━━━ ✦ <b>${esc(title)}</b> ✦ ━━━╮\n\n${esc(body)}`;
+  if(hasChannels){
+    text += `\n\n🔐 <b>CHANNEL ACCESS</b>\n${hasRequired?'Join the required channels below, then verify your membership.':'Join any optional channels you want. They do not block access.'}`;
   }
+  text += `\n\n╰━━━━━━━━━━━━━━━━━━━━╯`;
+
+  // Telegram cannot attach a Reply Keyboard and an Inline Keyboard to the same message.
+  // During channel gating, keep /start as ONE message with inline channel buttons.
+  // The permanent Reply Keyboard is installed after the user is verified.
+  const kb=hasChannels
+    ? await channelMenu(cs,hasRequired)
+    : mainKeyboard();
+
+  if(img){
+    try{
+      await ctx.replyWithPhoto(img,{caption:text,parse_mode:'HTML',...kb});
+      return;
+    }catch(e){
+      console.error('Welcome image failed:',e.message);
+    }
+  }
+  await ctx.reply(text,{parse_mode:'HTML',...kb});
 }
 function extractStartPayload(ctx){
   const text=ctx.message?.text||'';
@@ -231,12 +241,15 @@ bot.action(/^channelinfo:(\d+)$/,async ctx=>{
   await ctx.answerCbQuery('This channel has no join link configured. Please ask the admin to add one.',{show_alert:true});
 });
 bot.action('verify',async ctx=>{
-  await ctx.answerCbQuery();
-  const ok=await sendGate(ctx);
-  if(ok){
-    if((await setting('auto_start_after_verify','1'))==='1') return home(ctx);
-    return ctx.reply(`✅ <b>Membership verified.</b>`,{parse_mode:'HTML',...mainKeyboard()});
+  const ok=await isVerified(ctx);
+  if(!ok){
+    await ctx.answerCbQuery('Please join all required channels first.',{show_alert:true});
+    return;
   }
+  await ctx.answerCbQuery('Membership verified ✓');
+  try{ await ctx.deleteMessage(); }catch{}
+  if((await setting('auto_start_after_verify','1'))==='1') return home(ctx);
+  return ctx.reply(`✅ <b>Membership verified.</b>`,{parse_mode:'HTML',...mainKeyboard()});
 });
 async function showTasks(ctx){return gated(ctx,async()=>{const ts=(await q('SELECT * FROM tasks WHERE active ORDER BY id DESC')).rows;if(!ts.length)return ctx.reply('📭 <b>No tasks available right now.</b>\nPlease check again later.',{parse_mode:'HTML',...mainKeyboard()});for(const t of ts){const text=`🎁 <b>${esc(t.title)}</b>\n\n${esc(t.description)}\n\n💰 Reward: <b>${esc(money(t.reward,await setting('currency','₹')))}</b>`;await ctx.reply(text,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('🚀 START TASK',`task:${t.id}`)],[Markup.button.callback('‹ BACK','ui:home')]])});}});}
 async function showWallet(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),c=await setting('currency','₹');await ctx.reply(`💰 <b>MY WALLET</b>\n\nAvailable Balance\n<b>${esc(money(u.balance,c))}</b>\n\n🎁 Lifetime Earned: ${esc(money(u.lifetime_earned,c))}\n💸 Lifetime Withdrawn: ${esc(money(u.lifetime_withdrawn,c))}`,{parse_mode:'HTML',...mainKeyboard()});});}
