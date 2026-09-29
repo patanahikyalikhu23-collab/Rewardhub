@@ -1,4 +1,4 @@
-# Falak Agent Reward Bot v1.5
+# Falak Agent Reward Bot v1.6.5
 
 Native Telegram reward/referral bot with PostgreSQL and an advanced admin console.
 
@@ -21,3 +21,10 @@ Important:
 Run:
 npm install
 npm start
+
+
+### v1.6 UI architecture
+- Permanent main navigation uses Telegram Reply Keyboard.
+- Channel join/verification uses Inline Keyboard only.
+- `/start` no longer renders a duplicate inline main menu.
+- Channel layout remains configurable at 1, 2, or 3 buttons per row.

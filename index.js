@@ -68,15 +68,14 @@ function stylize(label){
   const map={'E':'𝗘','A':'𝗔','R':'𝗥','N':'𝗡','W':'𝗪','L':'𝗟','T':'𝗧','I':'𝗜','V':'𝗩','D':'𝗗','F':'𝗙','G':'𝗚','O':'𝗢','Y':'𝗬','B':'𝗕','C':'𝗖','H':'𝗛','M':'𝗠','P':'𝗣','U':'𝗨','S':'𝗦','K':'𝗞','Q':'𝗤','X':'𝗫','J':'𝗝','Z':'𝗭'};
   return String(label).toUpperCase().split('').map(ch=>map[ch]||ch).join('');
 }
-function mainMenu(){
-  const b=(label,data)=>Markup.button.callback(label,data);
-  return Markup.inlineKeyboard([
-    [b(`🎁 ${stylize('Earn')}`,'ui:tasks'),b(`💰 ${stylize('Wallet')}`,'ui:wallet')],
-    [b(`👥 ${stylize('Invite & Earn')}`,'ui:invite'),b(`🏆 ${stylize('Leaderboard')}`,'ui:leaderboard')],
-    [b(`🎟 ${stylize('Gift Code')}`,'ui:gift'),b(`📜 ${stylize('History')}`,'ui:history')],
-    [b(`💸 ${stylize('Withdraw')}`,'ui:withdraw'),b(`👤 ${stylize('My Account')}`,'ui:account')],
-    [b(`🆘 ${stylize('Support')}`,'ui:support')],
-  ]);
+function mainKeyboard(){
+  return Markup.keyboard([
+    ['🎁 Earn','💰 Wallet'],
+    ['👥 Invite & Earn','🏆 Leaderboard'],
+    ['🎟 Gift Code','📜 History'],
+    ['💸 Withdraw','👤 My Account'],
+    ['🆘 Support']
+  ]).resize();
 }
 async function channelRows(cs){
   const n=Math.min(3,Math.max(1,Number(await setting('channel_layout','3'))||3));
@@ -186,7 +185,7 @@ async function home(ctx){
   const u=await getUser(ctx.from.id),cur=await setting('currency','₹');
   const text=`╭━━━ ✦ <b>${stylize('Falak Rewards')}</b> ✦ ━━━╮\n\n👋 Welcome back, <b>${esc(u.first_name||'there')}</b>\n\n💰 <b>Balance</b>  ${esc(money(u.balance,cur))}\n🎁 <b>Earned</b>   ${esc(money(u.lifetime_earned,cur))}\n\nChoose an action below.\n\n╰━━━━━━━━━━━━━━━━━━━━╯`;
   const img=await setting('start_image_file_id','');
-  const kb=mainMenu();
+  const kb=mainKeyboard();
   if(img){
     try{return await ctx.replyWithPhoto(img,{caption:text,parse_mode:'HTML',...kb});}catch{}
   }
@@ -197,17 +196,21 @@ async function sendStart(ctx){
   const title=await setting('start_title','👋 Welcome to Falak Rewards');
   const body=(await setting('start_text','')).replace(/\\n/g,'\n');
   const text=`╭━━━ ✦ <b>${esc(title)}</b> ✦ ━━━╮\n\n${esc(body)}\n\n╰━━━━━━━━━━━━━━━━━━━━╯`;
+  const reply=mainKeyboard();
+  if(img){
+    try{await ctx.replyWithPhoto(img,{caption:text,parse_mode:'HTML',...reply});}
+    catch(e){console.error('Welcome image failed:',e.message);await ctx.reply(text,{parse_mode:'HTML',...reply});}
+  }else{
+    await ctx.reply(text,{parse_mode:'HTML',...reply});
+  }
+
   const cs=await requiredChannels();
   const hasRequired=cs.some(c=>c.verification_required);
-  const rows=await channelRows(cs);
-  if(hasRequired) rows.push([Markup.button.callback('↻ 𝗩𝗘𝗥𝗜𝗙𝗬 𝗠𝗘𝗠𝗕𝗘𝗥𝗦𝗛𝗜𝗣','verify')]);
-  rows.push(...mainMenu().reply_markup.inline_keyboard);
-  const keyboard=Markup.inlineKeyboard(rows);
-  if(img){
-    try{return await ctx.replyWithPhoto(img,{caption:text,parse_mode:'HTML',...keyboard});}
-    catch(e){console.error('Welcome image failed:',e.message);}
+  if(hasRequired){
+    const rows=await channelRows(cs);
+    rows.push([Markup.button.callback('↻ 𝗩𝗘𝗥𝗜𝗙𝗬 𝗠𝗘𝗠𝗕𝗘𝗥𝗦𝗛𝗜𝗣','verify')]);
+    await ctx.reply('🔐 <b>CHANNEL VERIFICATION</b>\n\nJoin the required channels below, then press <b>Verify Membership</b>.\n\n📢 Optional channels can be skipped.',{parse_mode:'HTML',...Markup.inlineKeyboard(rows)});
   }
-  return ctx.reply(text,{parse_mode:'HTML',...keyboard});
 }
 function extractStartPayload(ctx){
   const text=ctx.message?.text||'';
@@ -232,12 +235,12 @@ bot.action('verify',async ctx=>{
   const ok=await sendGate(ctx);
   if(ok){
     if((await setting('auto_start_after_verify','1'))==='1') return home(ctx);
-    return ctx.reply(`✅ <b>Membership verified.</b>`,{parse_mode:'HTML',...mainMenu()});
+    return ctx.reply(`✅ <b>Membership verified.</b>`,{parse_mode:'HTML',...mainKeyboard()});
   }
 });
-async function showTasks(ctx){return gated(ctx,async()=>{const ts=(await q('SELECT * FROM tasks WHERE active ORDER BY id DESC')).rows;if(!ts.length)return ctx.reply('📭 <b>No tasks available right now.</b>\nPlease check again later.',{parse_mode:'HTML',...mainMenu()});for(const t of ts){const text=`🎁 <b>${esc(t.title)}</b>\n\n${esc(t.description)}\n\n💰 Reward: <b>${esc(money(t.reward,await setting('currency','₹')))}</b>`;await ctx.reply(text,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('🚀 START TASK',`task:${t.id}`)],[Markup.button.callback('‹ BACK','ui:home')]])});}});}
-async function showWallet(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),c=await setting('currency','₹');await ctx.reply(`💰 <b>MY WALLET</b>\n\nAvailable Balance\n<b>${esc(money(u.balance,c))}</b>\n\n🎁 Lifetime Earned: ${esc(money(u.lifetime_earned,c))}\n💸 Lifetime Withdrawn: ${esc(money(u.lifetime_withdrawn,c))}`,{parse_mode:'HTML',...mainMenu()});});}
-async function showAccount(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id);const s=(await q("SELECT count(*)::int total,count(*) FILTER(WHERE status='qualified')::int qualified FROM referrals WHERE referrer_id=$1",[u.id])).rows[0];await ctx.reply(`👤 <b>MY ACCOUNT</b>\n\n🆔 <code>${u.telegram_id}</code>\n${u.username?'@'+esc(u.username):'No username'}\n\n👥 Invited: <b>${s.total}</b>\n✅ Qualified: <b>${s.qualified}</b>\n📅 Joined: ${new Date(u.created_at).toLocaleDateString('en-IN')}`,{parse_mode:'HTML',...mainMenu()});});}
+async function showTasks(ctx){return gated(ctx,async()=>{const ts=(await q('SELECT * FROM tasks WHERE active ORDER BY id DESC')).rows;if(!ts.length)return ctx.reply('📭 <b>No tasks available right now.</b>\nPlease check again later.',{parse_mode:'HTML',...mainKeyboard()});for(const t of ts){const text=`🎁 <b>${esc(t.title)}</b>\n\n${esc(t.description)}\n\n💰 Reward: <b>${esc(money(t.reward,await setting('currency','₹')))}</b>`;await ctx.reply(text,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('🚀 START TASK',`task:${t.id}`)],[Markup.button.callback('‹ BACK','ui:home')]])});}});}
+async function showWallet(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),c=await setting('currency','₹');await ctx.reply(`💰 <b>MY WALLET</b>\n\nAvailable Balance\n<b>${esc(money(u.balance,c))}</b>\n\n🎁 Lifetime Earned: ${esc(money(u.lifetime_earned,c))}\n💸 Lifetime Withdrawn: ${esc(money(u.lifetime_withdrawn,c))}`,{parse_mode:'HTML',...mainKeyboard()});});}
+async function showAccount(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id);const s=(await q("SELECT count(*)::int total,count(*) FILTER(WHERE status='qualified')::int qualified FROM referrals WHERE referrer_id=$1",[u.id])).rows[0];await ctx.reply(`👤 <b>MY ACCOUNT</b>\n\n🆔 <code>${u.telegram_id}</code>\n${u.username?'@'+esc(u.username):'No username'}\n\n👥 Invited: <b>${s.total}</b>\n✅ Qualified: <b>${s.qualified}</b>\n📅 Joined: ${new Date(u.created_at).toLocaleDateString('en-IN')}`,{parse_mode:'HTML',...mainKeyboard()});});}
 async function showInvite(ctx){
   return gated(ctx,async()=>{
     const u=await getUser(ctx.from.id),me=await ctx.telegram.getMe(),c=await setting('currency','₹');
@@ -250,23 +253,23 @@ async function showInvite(ctx){
     ])});
   });
 }
-async function showLeaderboard(ctx){return gated(ctx,async()=>{const c=await setting('currency','₹');const r=(await q("SELECT first_name,username,lifetime_earned FROM users WHERE status='active' ORDER BY lifetime_earned DESC LIMIT 10")).rows;await ctx.reply('🏆 <b>TOP EARNERS</b>\n\n'+(r.length?r.map((x,i)=>`${['🥇','🥈','🥉'][i]||`${i+1}️⃣`} ${esc(x.username?'@'+x.username:x.first_name)} — <b>${esc(money(x.lifetime_earned,c))}</b>`).join('\n'):'No data yet.'),{parse_mode:'HTML',...mainMenu()});});}
-async function showHistory(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),r=(await q('SELECT type,amount,status,created_at FROM wallet_transactions WHERE user_id=$1 ORDER BY id DESC LIMIT 15',[u.id])).rows;const c=await setting('currency','₹');await ctx.reply(r.length?'📜 <b>HISTORY</b>\n\n'+r.map(x=>`• ${esc(x.type)} — ${esc(money(x.amount,c))} — ${esc(x.status)}`).join('\n'):'📜 No transactions yet.',{parse_mode:'HTML',...mainMenu()});});}
-async function showGift(ctx){await ctx.answerCbQuery?.().catch(()=>{});return ctx.reply('🎟 <b>GIFT CODE</b>\n\nSend: <code>/gift YOURCODE</code>',{parse_mode:'HTML',...mainMenu()});}
-async function showWithdraw(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),m=await setting('min_withdrawal','100'),c=await setting('currency','₹');await ctx.reply(`💸 <b>WITHDRAW</b>\n\nAvailable: <b>${esc(money(u.balance,c))}</b>\nMinimum: <b>${esc(money(m,c))}</b>\n\nUse:\n<code>/withdraw ${m} upi yourupi@bank</code>`,{parse_mode:'HTML',...mainMenu()});});}
-async function showSupport(ctx){const u=String(process.env.SUPPORT_USERNAME||'not_configured').replace(/^@/,'');return ctx.reply(`╭━━━ ✦ <b>${stylize('Support')}</b> ✦ ━━━╮\n\nNeed help with a task, withdrawal, or account?\n\n👤 Contact: <b>@${esc(u)}</b>\n\n╰━━━━━━━━━━━━━━━━━━━━╯`,{parse_mode:'HTML',...mainMenu()});}
-async function showHelp(ctx){return ctx.reply(`╭━━━ ✦ <b>${stylize('Help Center')}</b> ✦ ━━━╮\n\nUse the buttons above to navigate.\n\n🎟 <code>/gift CODE</code> — redeem a gift code\n💸 <code>/withdraw amount method destination</code> — request a withdrawal\n🏠 <code>/start</code> — open the welcome screen\n\n╰━━━━━━━━━━━━━━━━━━━━╯`,{parse_mode:'HTML',...mainMenu()});}
+async function showLeaderboard(ctx){return gated(ctx,async()=>{const c=await setting('currency','₹');const r=(await q("SELECT first_name,username,lifetime_earned FROM users WHERE status='active' ORDER BY lifetime_earned DESC LIMIT 10")).rows;await ctx.reply('🏆 <b>TOP EARNERS</b>\n\n'+(r.length?r.map((x,i)=>`${['🥇','🥈','🥉'][i]||`${i+1}️⃣`} ${esc(x.username?'@'+x.username:x.first_name)} — <b>${esc(money(x.lifetime_earned,c))}</b>`).join('\n'):'No data yet.'),{parse_mode:'HTML',...mainKeyboard()});});}
+async function showHistory(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),r=(await q('SELECT type,amount,status,created_at FROM wallet_transactions WHERE user_id=$1 ORDER BY id DESC LIMIT 15',[u.id])).rows;const c=await setting('currency','₹');await ctx.reply(r.length?'📜 <b>HISTORY</b>\n\n'+r.map(x=>`• ${esc(x.type)} — ${esc(money(x.amount,c))} — ${esc(x.status)}`).join('\n'):'📜 No transactions yet.',{parse_mode:'HTML',...mainKeyboard()});});}
+async function showGift(ctx){await ctx.answerCbQuery?.().catch(()=>{});return ctx.reply('🎟 <b>GIFT CODE</b>\n\nSend: <code>/gift YOURCODE</code>',{parse_mode:'HTML',...mainKeyboard()});}
+async function showWithdraw(ctx){return gated(ctx,async()=>{const u=await getUser(ctx.from.id),m=await setting('min_withdrawal','100'),c=await setting('currency','₹');await ctx.reply(`💸 <b>WITHDRAW</b>\n\nAvailable: <b>${esc(money(u.balance,c))}</b>\nMinimum: <b>${esc(money(m,c))}</b>\n\nUse:\n<code>/withdraw ${m} upi yourupi@bank</code>`,{parse_mode:'HTML',...mainKeyboard()});});}
+async function showSupport(ctx){const u=String(process.env.SUPPORT_USERNAME||'not_configured').replace(/^@/,'');return ctx.reply(`╭━━━ ✦ <b>${stylize('Support')}</b> ✦ ━━━╮\n\nNeed help with a task, withdrawal, or account?\n\n👤 Contact: <b>@${esc(u)}</b>\n\n╰━━━━━━━━━━━━━━━━━━━━╯`,{parse_mode:'HTML',...mainKeyboard()});}
+async function showHelp(ctx){return ctx.reply(`╭━━━ ✦ <b>${stylize('Help Center')}</b> ✦ ━━━╮\n\nUse the menu below to navigate.\n\n🎟 <code>/gift CODE</code> — redeem a gift code\n💸 <code>/withdraw amount method destination</code> — request a withdrawal\n🏠 <code>/start</code> — open the welcome screen\n\n╰━━━━━━━━━━━━━━━━━━━━╯`,{parse_mode:'HTML',...mainKeyboard()});}
 async function showHome(ctx){return home(ctx);}
 
 bot.action(/^ui:(home|tasks|wallet|invite|leaderboard|gift|history|withdraw|account|support|help)$/,async ctx=>{await ctx.answerCbQuery();const a=ctx.match[1];if(a==='home')return showHome(ctx);if(a==='tasks')return showTasks(ctx);if(a==='wallet')return showWallet(ctx);if(a==='invite')return showInvite(ctx);if(a==='leaderboard')return showLeaderboard(ctx);if(a==='gift')return showGift(ctx);if(a==='history')return showHistory(ctx);if(a==='withdraw')return showWithdraw(ctx);if(a==='account')return showAccount(ctx);if(a==='support')return showSupport(ctx);return showHelp(ctx);});
 bot.action(/^task:(\d+)$/,async ctx=>{await ctx.answerCbQuery();await gated(ctx,async()=>{const u=await getUser(ctx.from.id);const t=(await q('SELECT * FROM tasks WHERE id=$1 AND active',[Number(ctx.match[1])])).rows[0];if(!t)return ctx.reply('❌ Task unavailable.');const n=Number((await q("SELECT count(*)::int n FROM task_attempts WHERE user_id=$1 AND task_id=$2 AND created_at>=date_trunc('day',NOW()) AND status='completed'",[u.id,t.id])).rows[0].n);if(n>=t.daily_limit)return ctx.reply('⚠️ Daily limit reached.');const a=(await q('INSERT INTO task_attempts(task_id,user_id) VALUES($1,$2) RETURNING id',[t.id,u.id])).rows[0];await ctx.reply(`🚀 <b>${esc(t.title)}</b>\n\nComplete the task and then continue.`,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('✅ COMPLETE',`done:${a.id}`)],[Markup.button.callback('‹ BACK','ui:tasks')]])});});});
-bot.action(/^done:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const u=await getUser(ctx.from.id);const c=await db.connect();try{await c.query('BEGIN');const a=(await c.query('SELECT a.*,t.reward,t.title FROM task_attempts a JOIN tasks t ON t.id=a.task_id WHERE a.id=$1 AND a.user_id=$2 FOR UPDATE',[Number(ctx.match[1]),u.id])).rows[0];if(!a||a.status!=='started'){await c.query('ROLLBACK');return ctx.reply('❌ Invalid or already completed.');}await c.query("UPDATE task_attempts SET status='completed',completed_at=NOW() WHERE id=$1",[a.id]);await c.query('UPDATE users SET balance=balance+$2,lifetime_earned=lifetime_earned+$2 WHERE id=$1',[u.id,a.reward]);await c.query("INSERT INTO wallet_transactions(user_id,type,amount,reference,note) VALUES($1,'task_reward',$2,$3,$4)",[u.id,a.reward,'TASK-'+a.id,a.title]);await c.query('COMMIT');await ctx.reply(`🎉 <b>Reward Added!</b>\n\nYou earned <b>${esc(money(a.reward,await setting('currency','₹')))}</b>.`,{parse_mode:'HTML',...mainMenu()});await qualifyReferral(u.id);}catch(e){await c.query('ROLLBACK');await ctx.reply('❌ Something went wrong.');}finally{c.release();}});
+bot.action(/^done:(\d+)$/,async ctx=>{await ctx.answerCbQuery();const u=await getUser(ctx.from.id);const c=await db.connect();try{await c.query('BEGIN');const a=(await c.query('SELECT a.*,t.reward,t.title FROM task_attempts a JOIN tasks t ON t.id=a.task_id WHERE a.id=$1 AND a.user_id=$2 FOR UPDATE',[Number(ctx.match[1]),u.id])).rows[0];if(!a||a.status!=='started'){await c.query('ROLLBACK');return ctx.reply('❌ Invalid or already completed.');}await c.query("UPDATE task_attempts SET status='completed',completed_at=NOW() WHERE id=$1",[a.id]);await c.query('UPDATE users SET balance=balance+$2,lifetime_earned=lifetime_earned+$2 WHERE id=$1',[u.id,a.reward]);await c.query("INSERT INTO wallet_transactions(user_id,type,amount,reference,note) VALUES($1,'task_reward',$2,$3,$4)",[u.id,a.reward,'TASK-'+a.id,a.title]);await c.query('COMMIT');await ctx.reply(`🎉 <b>Reward Added!</b>\n\nYou earned <b>${esc(money(a.reward,await setting('currency','₹')))}</b>.`,{parse_mode:'HTML',...mainKeyboard()});await qualifyReferral(u.id);}catch(e){await c.query('ROLLBACK');await ctx.reply('❌ Something went wrong.');}finally{c.release();}});
 
-bot.command('gift',async ctx=>{const code=(ctx.message.text.split(/\s+/)[1]||'').toUpperCase();if(!code)return ctx.reply('Usage: /gift CODE');const u=await getUser(ctx.from.id),c=await db.connect();try{await c.query('BEGIN');const g=(await c.query('SELECT * FROM gift_codes WHERE code=$1 AND active FOR UPDATE',[code])).rows[0];if(!g)throw Error('Invalid code');if(g.expires_at&&new Date(g.expires_at)<new Date())throw Error('Code expired');if(g.used_count>=g.max_uses)throw Error('No uses left');if((await c.query('SELECT 1 FROM gift_uses WHERE gift_id=$1 AND user_id=$2',[g.id,u.id])).rows[0])throw Error('Already used');await c.query('INSERT INTO gift_uses(gift_id,user_id) VALUES($1,$2)',[g.id,u.id]);await c.query('UPDATE gift_codes SET used_count=used_count+1 WHERE id=$1',[g.id]);await c.query('UPDATE users SET balance=balance+$2,lifetime_earned=lifetime_earned+$2 WHERE id=$1',[u.id,g.amount]);await c.query("INSERT INTO wallet_transactions(user_id,type,amount,reference) VALUES($1,'gift_code',$2,$3)",[u.id,g.amount,'GIFT-'+g.id]);await c.query('COMMIT');await ctx.reply(`🎉 <b>Gift Code Applied!</b>\n\nAdded <b>${esc(money(g.amount,await setting('currency','₹')))}</b> to your wallet.`,{parse_mode:'HTML',...mainMenu()});await qualifyReferral(u.id);}catch(e){await c.query('ROLLBACK');await ctx.reply('❌ '+esc(e.message),{parse_mode:'HTML'});}finally{c.release();}});
+bot.command('gift',async ctx=>{const code=(ctx.message.text.split(/\s+/)[1]||'').toUpperCase();if(!code)return ctx.reply('Usage: /gift CODE');const u=await getUser(ctx.from.id),c=await db.connect();try{await c.query('BEGIN');const g=(await c.query('SELECT * FROM gift_codes WHERE code=$1 AND active FOR UPDATE',[code])).rows[0];if(!g)throw Error('Invalid code');if(g.expires_at&&new Date(g.expires_at)<new Date())throw Error('Code expired');if(g.used_count>=g.max_uses)throw Error('No uses left');if((await c.query('SELECT 1 FROM gift_uses WHERE gift_id=$1 AND user_id=$2',[g.id,u.id])).rows[0])throw Error('Already used');await c.query('INSERT INTO gift_uses(gift_id,user_id) VALUES($1,$2)',[g.id,u.id]);await c.query('UPDATE gift_codes SET used_count=used_count+1 WHERE id=$1',[g.id]);await c.query('UPDATE users SET balance=balance+$2,lifetime_earned=lifetime_earned+$2 WHERE id=$1',[u.id,g.amount]);await c.query("INSERT INTO wallet_transactions(user_id,type,amount,reference) VALUES($1,'gift_code',$2,$3)",[u.id,g.amount,'GIFT-'+g.id]);await c.query('COMMIT');await ctx.reply(`🎉 <b>Gift Code Applied!</b>\n\nAdded <b>${esc(money(g.amount,await setting('currency','₹')))}</b> to your wallet.`,{parse_mode:'HTML',...mainKeyboard()});await qualifyReferral(u.id);}catch(e){await c.query('ROLLBACK');await ctx.reply('❌ '+esc(e.message),{parse_mode:'HTML'});}finally{c.release();}});
 bot.command('help',async ctx=>showHelp(ctx));
-bot.command('withdraw',async ctx=>{if(!(await isVerified(ctx)))return sendGate(ctx);const p=ctx.message.text.trim().split(/\s+/),amount=Number(p[1]),method=p[2],dest=p.slice(3).join(' '),min=Number(await setting('min_withdrawal','100')),u=await getUser(ctx.from.id);if(!Number.isFinite(amount)||amount<min||!method||!dest)return ctx.reply(`Usage: /withdraw ${min} upi yourupi@bank`);const c=await db.connect();try{await c.query('BEGIN');const bal=Number((await c.query('SELECT balance FROM users WHERE id=$1 FOR UPDATE',[u.id])).rows[0].balance);if(bal<amount)throw Error('Insufficient balance');const w=(await c.query('INSERT INTO withdrawals(user_id,amount,method,destination) VALUES($1,$2,$3,$4) RETURNING id',[u.id,amount,method,dest])).rows[0];await c.query('UPDATE users SET balance=balance-$2 WHERE id=$1',[u.id,amount]);await c.query("INSERT INTO wallet_transactions(user_id,type,amount,status,reference) VALUES($1,'withdrawal',$2,'pending',$3)",[u.id,-amount,'WD-'+w.id]);await c.query('COMMIT');await ctx.reply(`⏳ <b>Withdrawal Submitted</b>\n\nRequest: <code>WD-${w.id}</code>\nAmount: <b>${esc(money(amount,await setting('currency','₹')))}</b>\nStatus: Pending`,{parse_mode:'HTML',...mainMenu()});}catch(e){await c.query('ROLLBACK');await ctx.reply('❌ '+esc(e.message),{parse_mode:'HTML'});}finally{c.release();}});
+bot.command('withdraw',async ctx=>{if(!(await isVerified(ctx)))return sendGate(ctx);const p=ctx.message.text.trim().split(/\s+/),amount=Number(p[1]),method=p[2],dest=p.slice(3).join(' '),min=Number(await setting('min_withdrawal','100')),u=await getUser(ctx.from.id);if(!Number.isFinite(amount)||amount<min||!method||!dest)return ctx.reply(`Usage: /withdraw ${min} upi yourupi@bank`);const c=await db.connect();try{await c.query('BEGIN');const bal=Number((await c.query('SELECT balance FROM users WHERE id=$1 FOR UPDATE',[u.id])).rows[0].balance);if(bal<amount)throw Error('Insufficient balance');const w=(await c.query('INSERT INTO withdrawals(user_id,amount,method,destination) VALUES($1,$2,$3,$4) RETURNING id',[u.id,amount,method,dest])).rows[0];await c.query('UPDATE users SET balance=balance-$2 WHERE id=$1',[u.id,amount]);await c.query("INSERT INTO wallet_transactions(user_id,type,amount,status,reference) VALUES($1,'withdrawal',$2,'pending',$3)",[u.id,-amount,'WD-'+w.id]);await c.query('COMMIT');await ctx.reply(`⏳ <b>Withdrawal Submitted</b>\n\nRequest: <code>WD-${w.id}</code>\nAmount: <b>${esc(money(amount,await setting('currency','₹')))}</b>\nStatus: Pending`,{parse_mode:'HTML',...mainKeyboard()});}catch(e){await c.query('ROLLBACK');await ctx.reply('❌ '+esc(e.message),{parse_mode:'HTML'});}finally{c.release();}});
 
-// Legacy text commands remain supported for users who type them manually.
+// Reply-keyboard main navigation handlers.
 bot.hears('🎁 Earn',showTasks);bot.hears('💰 Wallet',showWallet);bot.hears('👥 Invite & Earn',showInvite);bot.hears('🏆 Leaderboard',showLeaderboard);bot.hears('🎟 Gift Code',showGift);bot.hears('📜 History',showHistory);bot.hears('💸 Withdraw',showWithdraw);bot.hears('👤 My Account',showAccount);bot.hears('🆘 Support',showSupport);
 
 
@@ -278,7 +281,7 @@ bot.on('photo',async ctx=>{if(!welcomePhotoAdmins.has(String(ctx.from.id))||!(aw
 
 
 const app=express();app.use(express.json({limit:'2mb'}));app.use(cookieParser());
-app.get('/health',(req,res)=>res.json({ok:true,service:'falak-agent-reward-bot'}));
+app.get('/health',(req,res)=>res.json({ok:true,service:'falak-agent-reward-bot-v1.6'}));
 function auth(req,res,next){try{req.admin=jwt.verify(req.cookies.admin,process.env.JWT_SECRET);next();}catch{res.status(401).json({error:'Unauthorized'});}}
 function page(){return fs.readFileSync(path.join(__dirname,'admin.html'),'utf8');}
 app.get('/admin',(req,res)=>res.send(page()));
